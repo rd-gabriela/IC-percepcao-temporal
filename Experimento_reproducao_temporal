@@ -1,0 +1,213 @@
+import pygame
+import random
+import time
+import csv
+import sys
+
+# --- Configurações de Estímulo e Parâmetros ---
+CORES = {
+    'branco': (255, 255, 255), 
+    'preto': (0, 0, 0), 
+    'verde': (34, 139, 34),   
+    'vermelho': (178, 34, 34) 
+}
+TAMANHO_TELA = (800, 600)
+TAMANHO_QUADRADO = 200
+
+# Parâmetros do Experimento
+INTERVALOS = [1.0, 2.0, 4.0] # Intervalos especificados
+REPETICOES = 15 # 15 tentativas de cada
+RODADAS_TREINO = 5
+MARGEM_ERRO = 0.05  #5% 
+
+def formatar_texto(tela, texto, cor, y_offset=0, tamanho=22):
+    """Renderiza texto centralizado com deslocamento vertical."""
+    fonte = pygame.font.SysFont("Arial", tamanho)
+    superficie = fonte.render(texto, True, cor)
+    retangulo = superficie.get_rect(center=(TAMANHO_TELA[0] // 2, TAMANHO_TELA[1] // 2 + y_offset))
+    tela.blit(superficie, retangulo)
+
+def aguardar_tecla():
+    """Pausa a execução até que o usuário pressione qualquer tecla."""
+    esperar = True
+    while esperar:
+        for e in pygame.event.get():
+            if e.type == pygame.KEYDOWN:
+                esperar = False
+            if e.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+
+def executar_countdown(tela, mensagem_bloco):
+    """Exibe contagem regressiva de 3 a 1 antes de iniciar."""
+    for i in range(3, 0, -1):
+        tela.fill(CORES['branco'])
+        formatar_texto(tela, mensagem_bloco, CORES['preto'], -50)
+        formatar_texto(tela, str(i), CORES['preto'], 20, tamanho=60)
+        pygame.display.flip()
+        time.sleep(1)
+    tela.fill(CORES['branco'])
+    pygame.display.flip()
+    time.sleep(0.5)
+
+def executar_tentativa(tela, duracao_alvo, eh_treino=False):
+    """Executa uma rodada completa: Estímulo -> Reprodução -> Feedback."""
+    
+    # NOVO: Indicador de nova rodada e countdown
+    msg_countdown = "A próxima rodada irá começar..."
+    if eh_treino:
+        msg_countdown = "[TREINO] " + msg_countdown
+    executar_countdown(tela, msg_countdown)
+
+    # 1. Apresentação do Quadrado (Estímulo)
+    tela.fill(CORES['branco'])
+    pygame.draw.rect(tela, CORES['preto'], 
+                     (TAMANHO_TELA[0]//2 - TAMANHO_QUADRADO//2, 
+                      TAMANHO_TELA[1]//2 - TAMANHO_QUADRADO//2, 
+                      TAMANHO_QUADRADO, TAMANHO_QUADRADO))
+    pygame.display.flip()
+    time.sleep(duracao_alvo)
+
+    # 2. Intervalo Inter-estímulos (ISI)
+    tela.fill(CORES['branco'])
+    pygame.display.flip()
+    time.sleep(0.8)
+
+    # 3. Solicitação de Reprodução
+    msg = "Pressione e SEGURE a BARRA DE ESPAÇO"
+    if eh_treino: msg = "[TREINO] " + msg
+    
+    tela.fill(CORES['branco'])
+    formatar_texto(tela, msg, CORES['preto'])
+    pygame.display.flip()
+
+    duracao_reproduzida = 0
+    aguardando = True
+    
+    while aguardando:
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            
+            if evento.type == pygame.KEYDOWN and evento.key == pygame.K_SPACE:
+                inicio_pressionamento = time.time()
+                pressionando = True
+                # Enquanto segurar, o quadrado aparece
+                while pressionando:
+                    tela.fill(CORES['branco'])
+                    pygame.draw.rect(tela, CORES['verde'], 
+                                     (TAMANHO_TELA[0]//2 - TAMANHO_QUADRADO//2, 
+                                      TAMANHO_TELA[1]//2 - TAMANHO_QUADRADO//2, 
+                                      TAMANHO_QUADRADO, TAMANHO_QUADRADO))
+                    pygame.display.flip()
+                    
+                    for sub_evento in pygame.event.get():
+                        if sub_evento.type == pygame.KEYUP and sub_evento.key == pygame.K_SPACE:
+                            duracao_reproduzida = time.time() - inicio_pressionamento
+                            pressionando = False
+                            aguardando = False
+
+    # 4. Lógica de Feedback (Knowledge of Results)
+    limite_inf = duracao_alvo * (1 - MARGEM_ERRO)
+    limite_sup = duracao_alvo * (1 + MARGEM_ERRO)
+    
+    tela.fill(CORES['branco'])
+    
+    # NOVO: Verifica se o erro foi para mais, menos ou ideal.
+    if limite_inf <= duracao_reproduzida <= limite_sup:
+        msg_f = "Muito bem! Você foi preciso."
+        cor_f = CORES['verde']
+    elif duracao_reproduzida > limite_sup:
+        msg_f = "Você errou para mais."
+        cor_f = CORES['vermelho']
+    else:
+        msg_f = "Você errou para menos."
+        cor_f = CORES['vermelho']
+    
+    formatar_texto(tela, msg_f, cor_f, -20, tamanho=28)
+    
+    # O valor alvo (duracao_alvo) foi REMOVIDO conforme solicitado. 
+    # Mostraremos apenas a duração que o usuário efetivamente reproduziu.
+    formatar_texto(tela, f"Você fez: {duracao_reproduzida:.3f}s", CORES['preto'], 30, tamanho=18)
+    
+    pygame.display.flip()
+    time.sleep(1.5) 
+
+    return round(duracao_reproduzida, 3)
+
+def main():
+    # Coleta de Identificação
+    while True:
+        nome = input("Digite o nome do participante: ").strip()
+        if nome: #garante que nao esta vazio
+            break
+        print("Por favor, insira um nome válido.")
+        
+    pygame.init()
+    tela = pygame.display.set_mode(TAMANHO_TELA)
+    pygame.display.set_caption("Experimento de Reprodução Temporal")
+
+    # --- BLOCO DE EXPLICAÇÃO ---
+    tela.fill(CORES['branco'])
+    formatar_texto(tela, "Nesta tarefa, um quadrado preto aparecerá na tela.", CORES['preto'], -90)
+    formatar_texto(tela, "Quando indicado, reproduza o intervalo em que o quadrado apareceu", CORES['preto'], -60)
+    formatar_texto(tela, "segurando a tecla de espaço. Não conte explicitamente por quanto tempo o", CORES['preto'], -30)
+    formatar_texto(tela, "quadrado apareceu, tente reproduzir o intervalo usando apenas sua memória.", CORES['preto'], 0)
+    formatar_texto(tela, "Pressione qualquer tecla para partir para os treinos.", CORES['preto'], 60)
+    pygame.display.flip()
+    aguardar_tecla()
+
+    # --- BLOCO DE TREINO ---
+    tela.fill(CORES['branco'])
+    formatar_texto(tela, f"Iniciaremos {RODADAS_TREINO} rodadas de treino.", CORES['preto'], -20)
+    formatar_texto(tela, "Após o quadrado preto desaparecer, aguarde o comando e então", CORES['preto'], 10)
+    formatar_texto(tela, "mantenha a barra de espaço pressionada para reproduzir o intervalo.", CORES['preto'], 40)
+    formatar_texto(tela, "Pressione qualquer tecla para prosseguir.", CORES['preto'], 80)
+    pygame.display.flip()
+    aguardar_tecla()
+
+    for _ in range(RODADAS_TREINO):
+        executar_tentativa(tela, random.choice(INTERVALOS), eh_treino=True)
+
+    # --- BLOCO EXPERIMENTAL ---
+    tela.fill(CORES['branco'])
+    formatar_texto(tela, "Treino finalizado.", CORES['preto'], -40)
+    formatar_texto(tela, "Iniciaremos as rodadas registradas.", CORES['preto'], -10)
+    formatar_texto(tela, "Pressione qualquer tecla para o início real.", CORES['preto'], 40)
+    pygame.display.flip()
+    aguardar_tecla()
+
+    lista_tentativas = INTERVALOS * REPETICOES
+    random.shuffle(lista_tentativas)
+    
+    resultados_finais = []
+    for i, alvo in enumerate(lista_tentativas):
+        reproduzido = executar_tentativa(tela, alvo)
+        resultados_finais.append({
+            'tentativa': i + 1,
+            'intervalo_solicitado': alvo,
+            'intervalo_reproduzido': reproduzido
+        })
+
+    # --- SALVAMENTO ---
+    nome_arq = nome.replace(" ", "_")
+    colunas = ['tentativa', 'intervalo_solicitado', 'intervalo_reproduzido']
+
+    # Versão Sequencial
+    with open(f"{nome_arq}_sequencial.csv", "w", newline="") as f:
+        escritor = csv.DictWriter(f, fieldnames=colunas)
+        escritor.writeheader()
+        escritor.writerows(resultados_finais)
+
+    # Versão Agrupada
+    dados_agrupados = sorted(resultados_finais, key=lambda x: x['intervalo_solicitado'])
+    with open(f"{nome_arq}_agrupado.csv", "w", newline="") as f:
+        escritor = csv.DictWriter(f, fieldnames=colunas)
+        escritor.writeheader()
+        escritor.writerows(dados_agrupados)
+
+    print(f"\nSucesso! Arquivos de {nome} gerados na pasta do script.")
+    pygame.quit()
+
+if __name__ == "__main__":
+    main()
